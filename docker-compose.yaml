@@ -1,0 +1,85 @@
+version: "3.9"
+
+services:
+  traefik:
+    image: traefik:v3.0
+    container_name: traefik
+    command:
+      - "--providers.docker=true"
+      - "--entrypoints.web.address=:80"
+      - "--"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.myresolver.acme.httpchallenge=true"
+      - "--certificatesresolvers.myresolver.acme.httpchallenge.entrypoint=web"
+      - "--certificatesresolvers.myresolver.acme.email=admin@myapp.com"
+      - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./letsencrypt:/letsencrypt
+
+  # --- React Frontend (به عنوان ورودی اصلی) ---
+  frontend:
+    build: ./frontend                # Dockerfile داخل ./frontend (با nginx)
+    container_name: react_frontend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.rule=Host(`myapp.com`)"
+      - "traefik.http.routers.frontend.entrypoints=websecure"
+      - "traefik.http.routers.frontend.tls.certresolver=myresolver"
+      - "traefik.http.services.frontend.loadbalancer.server.port=80"
+
+  # --- Django Backend (API) ---
+  django_app:
+    build: ./backend
+    container_name: django_backend
+    command: gunicorn --bind 0.0.0.0:8000 myproject.wsgi:application
+    depends_on:
+      - db
+      - rabbit
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.django.rule=Host(`myapp.com`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.django.entrypoints=websecure"
+      - "traefik.http.routers.django.tls.certresolver=myresolver"
+      - "traefik.http.services.django.loadbalancer.server.port=8000"
+
+  # --- Postgres ---
+  db:
+    image: postgres:15
+    container_name: postgres_db
+    environment:
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: mypass
+      POSTGRES_DB: mydb
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # --- RabbitMQ ---
+  rabbit:
+    image: rabbitmq:3-management
+    container_name: rabbitmq_broker
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.rabbit.rule=Host(`rabbit.myapp.com`)"
+      - "traefik.http.routers.rabbit.entrypoints=websecure"
+      - "traefik.http.routers.rabbit.tls.certresolver=myresolver"
+      - "traefik.http.services.rabbit.loadbalancer.server.port=15672"
+
+  # --- Celery Worker ---
+  celery:
+    build: ./backend
+    container_name: celery_worker
+    command: celery -A myproject worker -l info
+    depends_on:
+      - rabbit
+      - db
+
+volumes:
+  postgres_data:
