@@ -1,25 +1,35 @@
 version: "3.9"
 
 services:
-  traefik:
-    image: traefik:v3.0
-    container_name: traefik
-    command:
-      - "--providers.docker=true"
-      - "--entrypoints.web.address=:80"
-      - "--"
-      - "--entrypoints.websecure.address=:443"
-      - "--certificatesresolvers.myresolver.acme.httpchallenge=true"
-      - "--certificatesresolvers.myresolver.acme.httpchallenge.entrypoint=web"
-      - "--certificatesresolvers.myresolver.acme.email=admin@myapp.com"
-      - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
-    ports:
-      - "80:80"
-      - "443:443"
-      - "8080:8080"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./letsencrypt:/letsencrypt
+ traefik:
+  image: traefik:latest
+  command:
+    - "--providers.docker=true"
+    - "--entrypoints.web.address=:80"
+    - "--entrypoints.websecure.address=:443"
+    - "--api.dashboard=true"
+    - "--api.insecure=false"   # ❌ تو پروداکشن غیر فعال
+    - "--certificatesresolvers.myresolver.acme.httpchallenge=true"
+    - "--certificatesresolvers.myresolver.acme.httpchallenge.entrypoint=web"
+    - "--certificatesresolvers.myresolver.acme.email=admin@myapp.com"
+    - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
+  ports:
+    - "80:80"
+    - "443:443"
+  volumes:
+    - /var/run/docker.sock:/var/run/docker.sock:ro
+    - ./letsencrypt:/letsencrypt
+  labels:
+    - "traefik.enable=true"
+    - "traefik.http.routers.traefik.rule=Host(`traefik.myapp.com`)"
+    - "traefik.http.routers.traefik.entrypoints=websecure"
+    - "traefik.http.routers.traefik.tls.certresolver=myresolver"
+    - "traefik.http.routers.traefik.service=api@internal"
+
+    # Basic Auth middleware
+    - "traefik.http.middlewares.traefik-auth.basicauth.users=admin:$$2y$$05$$abcDEF...."
+    - "traefik.http.routers.traefik.middlewares=traefik-auth"
+    
 
   # --- React Frontend (به عنوان ورودی اصلی) ---
   frontend:
@@ -83,3 +93,4 @@ services:
 
 volumes:
   postgres_data:
+
