@@ -1,0 +1,90 @@
+version: "3.9"
+
+services:
+  traefik:
+    image: traefik:latest
+    container_name: traefik
+    command:
+      - "--api.dashboard=true"
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.myresolver.acme.httpchallenge=true"
+      - "--certificatesresolvers.myresolver.acme.httpchallenge.entrypoint=web"
+      - "--certificatesresolvers.myresolver.acme.email=admin@myapp.com"
+      - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
+    ports:
+      - 80:80
+      - 443:443
+      - 8080:8080
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./letsencrypt:/letsencrypt
+
+  dj:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mrkhanbn25/django-auth:3.11
+    container_name: django
+    volumes:
+      - .:/app
+
+    depends_on:
+      - db
+      - pgadmin
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.django.rule=Host(`localhost`)"
+      # - "traefik.http.routers.django.entrypoints=websecure"
+      # - "traefik.http.routers.django.tls.certresolver=myresolver"
+      - "traefik.http.services.django.loadbalancer.server.port=8000"
+  db:
+    image: postgres:17
+    container_name: postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin123
+      POSTGRES_DB: mydb
+    ports:
+      - 5432:5432
+    expose:
+      - 5432
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: pgadmin
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@gmail.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - 5050:80
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      - db
+  rabbitmq:
+    image: rabbitmq:latest
+    container_name: rabbitmq
+    restart: always
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.rabbitmq.rule=Host(`localhost`) && PathPrefix(`/r`)"
+      # - "traefik.http.routers.django.entrypoints=websecure"
+      # - "traefik.http.routers.django.tls.certresolver=myresolver"
+      - "traefik.http.services.rabbitmq.loadbalancer.server.port=15672"
+
+volumes:
+  postgres_data: {}
+  pgadmin_data: {}
+  rabbitmq_data: {}
